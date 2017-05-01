@@ -1,0 +1,161 @@
+#include <WiFiClient.h>
+#include <WiFi101.h>
+#define LED 4//indicator, Grove - LED is connected with D4 of Arduino
+boolean led_state = LOW;//state of LED, each time an external interrupt
+//will change the state of LED
+float tempa;
+int tempPin = 0;
+unsigned char counter = 0;
+unsigned long temp[21];
+unsigned long sub;
+bool data_effect = true;
+unsigned int heart_rate;//the measurement result of heart rate
+
+const int max_heartpluse_duty = 2000;//you can change it follow your system's request.
+//2000 meams 2 seconds. System return error
+//if the duty overtrip 2 second.
+
+//EVERYTHING THAT HAS TO DO WITH PUSHINGBOX"
+const char WEBSITE[] = "api.pushingbox.com"; //pushingbox API server
+const String devid = "vA73C2BD1B15F93F"; //device ID on Pushingbox for our Scenario
+const char* MY_SSID = "NYUSHIMA";
+const char* MY_PWD =  "Vlc5k$zf";
+int status = WL_IDLE_STATUS;
+WiFiClient client;
+
+int trigger = 0;
+const long beentriggered = 60000;
+
+
+void setup()
+{
+
+  pinMode(LED, OUTPUT);
+  Serial.begin(9600);
+  while (!Serial) {
+    ;
+  }
+  while (status != WL_CONNECTED) //connecting to the network
+  {
+    status = WiFi.begin(MY_SSID, MY_PWD);
+    delay(15000); //wait 10 for connection:
+  }
+  Serial.println("connected to the wifi");
+  printWifiStatus();
+
+  arrayInit();
+  Serial.println("the test will now begin.");
+  attachInterrupt(0, interrupt, RISING);//set interrupt 0,digital port 2
+}
+
+void loop()
+{
+  digitalWrite(LED, led_state);//Update the state of the indicator
+  if (heart_rate >= 65 && (tempa >= 27 || tempa <= 25))
+  {
+    if (client.connect(WEBSITE, 80) && trigger == 0)
+    {
+      client.print("GET /pushingbox?devid=");
+      client.print(devid);
+      client.println(" HTTP/1.1");
+      client.print("Host: ");
+      client.println(WEBSITE);
+      client.println("User-Agent: MKR1000/1.0");
+      client.println();
+      Serial.println("\nData Sent");
+    }
+    trigger = 1;
+    delay(beentriggered);
+  }
+}
+
+void sum()
+{
+  if (data_effect)
+  {
+    heart_rate = 1200000 / (temp[20] - temp[0]); //60*20*1000/20_total_time
+    Serial.print("Heart_rate_is:\t");
+    Serial.println(heart_rate);
+    tempa = analogRead(tempPin);
+    tempa = tempa * 0.11;
+    Serial.print("Body Temperature = ");
+    Serial.print(tempa);
+    Serial.print("*C");
+    Serial.println();
+    //delay(1000);
+    arrayInit();
+    Serial.println("the test will now begin.");
+    counter = 0;
+    data_effect = true;
+  }
+  data_effect = 1; //sign bit
+}
+/*Function: Interrupt service routine.Get the sigal from the external interrupt*/
+void interrupt()
+{
+  trigger = 0;
+  temp[counter] = millis();
+  Serial.println(counter, DEC);
+  switch (counter)
+  {
+    case 0:
+      sub = temp[counter] - temp[20];
+
+      break;
+    default:
+      sub = temp[counter] - temp[counter - 1];
+
+      break;
+  }
+  if (sub > max_heartpluse_duty) //set 2 seconds as max heart pluse duty
+  {
+    data_effect = 0; //sign bit
+    counter = 0;
+    Serial.println("measurement error,test will restart!" );
+    arrayInit();
+  }
+  else if (counter == 20 && data_effect)
+  {
+    counter = 0;
+    sum();
+  }
+  else if (counter != 20 && data_effect)
+  {
+    counter++;
+  }
+  else
+  {
+    counter = 0;
+    data_effect = 1;
+  }
+
+}
+/*Function: Initialization for the array(temp)*/
+void arrayInit()
+{
+  for (unsigned char i = 0; i < 20; i ++)
+  {
+    temp[i] = 0;
+  }
+  temp[20] = millis();
+}
+
+void printWifiStatus()
+{
+  // print the SSID of the network you're attached to:
+  Serial.print("SSID: ");
+  Serial.println(WiFi.SSID());
+
+  // print your WiFi shield's IP address:
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+
+  // print the received signal strength:
+  long rssi = WiFi.RSSI();
+  Serial.print("signal strength (RSSI):");
+  Serial.print(rssi);
+  Serial.println(" dBm");
+}
+
+
